@@ -6,12 +6,15 @@ It is working, but need to be improved
 
 '''
 
+
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import sys  
 import os
 from itertools import cycle,product
+import import_ipynb
 import datetime as dt
 import warnings
 sys.path.insert(0, '../../Demand')
@@ -52,32 +55,11 @@ def Gini_rsv(y,w=None):
 
 class Community():
     """
-    Main Community class
-    Contains common methods and functions such as the Data initialization, plots and 
-    ----
-    Outputs:
-     Input data
-     param_tech
-     param_tech_no_batt
-     param_tech_comm
-     meta
-     pv_dist
-     selection     
-     
-     retail_price_sc
-     export_price_sc
-     
-     nested_out
-     sum_bill
-     PV_size_comm
-     result_out
-     out_comm_final
-     out
-     
+    result_out
     """
     
     
-    def __init__(self, Data = None):
+    def __init__(self, Data = {}, allowPrintOutput = True):
         """
         Community initialization using Data (Dict)
         -----
@@ -91,26 +73,9 @@ class Community():
         """
         print('######################')
         print('Getting demand and PV profiles')
-        if(Data is None):
-            self.community_size=100
-            self.timestep=0.25 # in hours 0.25 is 15 minute
-            self.seed=1
-            self.country_code='DE'
-            self.pv_penetration=50
-            self.batt_penetration=50
-            self.retail_price=0.28
-            self.export_price=0.04
-            self.predet_bhv=False#'high','low',False
-            self.ILR=1
-            self.test_sc=False #generate P2P community prices without exchanges
-            self.cut='q0' # get the deciles of the trading groups in ['q0', 'q10', 'q20', 'q30', 'q40', 'q50', 'q60', 'q70', 'q80', 'q90']
-            self.PtC=False
-            self.Comm='SC'#default
-            self.parallel=True #default if parallel delete the non relevant results
-            self.PWI='None'
-        else:
+        if(len(Data) != 0):
             #If a dataframe has been provided, proceed to set up the optimisation problem:
-            print('inside')
+            print('insde')
             self.community_size=Data['community_size']
             self.timestep=Data['timestep'] # in hours 0.25 is 15 minute
             self.seed=Data['seed']
@@ -124,9 +89,20 @@ class Community():
             self.test_sc=Data['test_sc'] #generate P2P community prices without exchanges
             self.cut=Data['cut']
             self.PtC=Data['PtC']# Production to consumption ratio
-            self.Comm='SC'#Default
-            self.parallel=Data['parallel'] #default
-            self.PWI='None'
+        else:
+            self.community_size=100
+            self.timestep=0.25 # in hours 0.25 is 15 minute
+            self.seed=1
+            self.country_code='DE'
+            self.pv_penetration=50
+            self.batt_penetration=50
+            self.retail_price=0.28
+            self.export_price=0.04
+            self.predet_bhv=False#'high','low',False
+            self.ILR=1
+            self.test_sc=False #generate P2P community prices without exchanges
+            self.cut='q0' # get the deciles of the trading groups in ['q0', 'q10', 'q20', 'q30', 'q40', 'q50', 'q60', 'q70', 'q80', 'q90']
+            self.PtC=False
     def createParams(self):
         self.param_tech={'BatteryCapacity': 10,
                           'BatteryEfficiency': .91,
@@ -164,21 +140,21 @@ class Community():
         -----
         Data: Dict
         """
-        df,self.meta=dem(self.country_code)
-        pv=get_pv.get_pv(self.country_code,self.timestep)
+        self.df,self.meta=dem(self.country_code)
+        self.pv=get_pv.get_pv(self.country_code,self.timestep)
         if (self.timestep>0.25) & (self.country_code in ['DE','CH','US','UK']):
             if self.timestep==0.5:
-                df=df.resample('30T').sum()*2 # from kWh to kW
-                pv=pv*2
+                self.df=self.df.resample('30T').sum()*2 # from kWh to kW
+                self.pv=self.pv*2
             elif self.timestep==1:
-                df=df.resample('1H').sum() # from kWh to kW
+                self.df=self.df.resample('1H').sum() # from kWh to kW
 
         elif (self.timestep>0.5) & (self.country_code in ['IE']):
             if self.timestep==1:
-                df=df.resample('1H').sum() # from kWh to kW
+                self.df=self.df.resample('1H').sum() # from kWh to kW
         elif self.timestep==0.25:
-            df=df*4 # from kWh to kW
-            pv=pv*4
+            self.df=self.df*4 # from kWh to kW
+            self.pv=self.pv*4
         else:
             print('country or timestep not supported')
         print('######################')
@@ -186,7 +162,7 @@ class Community():
         #We use PV distribution with an average of 4 kW for DE
         self.pv_dist=get_pv.get_pv_ditribution(self.country_code,mean=4,seed=self.seed)
         
-        self.df_out=pd.concat([df,pv],axis=1)# demand and PV profiles
+        self.df_out=pd.concat([self.df,self.pv],axis=1)# demand and PV profiles
         self.df_com=pd.DataFrame(self.df_out.loc[:,(self.df_out.sum()<(10000/
                    self.timestep))].iloc[:,:-1].sample(n=self.community_size,
                    replace=True,random_state=self.seed,axis=1).columns)# names of the hh selected
@@ -195,18 +171,18 @@ class Community():
                                       random_state=self.seed).reset_index(drop=True),
                                       self.df_com],axis=1) # select sizes of PV
             self.selection.columns=['PV_size','name']
-            list_pv_penetration=[100,75,50,25]# %
-            list_batt_penetration=[100,75,50,25,0]# %
-            list_product=list(product(list_pv_penetration,list_batt_penetration))
+            self.list_pv_penetration=[100,75,50,25]# %
+            self.list_batt_penetration=[100,75,50,25,0]# %
+            self.list_product=list(product(self.list_pv_penetration,self.list_batt_penetration))
             # Here I match hh profile with different PV sizes and the selection of hh with PV
             # and PV and battery inside the community depending on PV and battery penetration
             # Seed makes the simulations reproducible
-            self.selection=p2p.flag_selection(self.selection,list_product,
-                                              list_pv_penetration,list_batt_penetration,
+            self.selection=p2p.flag_selection(self.selection,self.list_product,
+                                              self.list_pv_penetration,self.list_batt_penetration,
                                               self.community_size,self.seed) 
                 #self.selection.to_csv('/data/home/alejandropena/Psychology/Input/selection_'+country_code+'.csv',index=False)
         else:
-            PV_total=self.df_out.loc[:,(self.df_com.loc[:,0])].sum().sum()*self.PtC/pv.sum()
+            PV_total=self.df_out.loc[:,(self.df_com.loc[:,0])].sum().sum()*self.PtC/self.pv.sum()
             sel_pv_size=self.pv_dist.round(1).sample(n=self.community_size,
                                   random_state=self.seed)
             new_sel=sel_pv_size[sel_pv_size.cumsum()<=PV_total].fillna(0)
@@ -219,8 +195,8 @@ class Community():
             aux=self.selection[self.selection.PV_size>0].sample(random_state=self.seed,
                                                                 n= int(aux_batt)).index
             self.selection.loc[aux,'battery']=True
-        self.retail_price_sc=np.ones(self.df_out.shape[0])*self.retail_price # could be an input from the user #TODO
-        self.export_price_sc=np.ones(self.df_out.shape[0])*self.export_price # could be an input from the user #TODO
+        self.retail_price_sc=np.ones(self.df_out.shape[0])*self.retail_price
+        self.export_price_sc=np.ones(self.df_out.shape[0])*self.export_price
         
     def getDataSingleDict(self):
         #get all the data in a single dict
@@ -259,16 +235,16 @@ class Community():
                      'store2load':store2load.sum(axis=1),'inv_losses':inv_losses.sum(axis=1),
                      'batt_losses':batt_losses.sum(axis=1),'inv2curt':inv2curt.sum(axis=1),
                      'flagsell':flagsell.sum(axis=1)}
-        out_comm_res=p2p.dispatch_max_sc(nested_dict['inv2grid'],nested_dict['grid2load'],1e10,self.param_tech_comm)
+        self.out_comm_res=p2p.dispatch_max_sc(nested_dict['inv2grid'],nested_dict['grid2load'],1e10,self.param_tech_comm)
         self.out_comm_final={}
         self.out_comm_final['pv2inv']=nested_dict['pv2inv'] # DC from hh with PV
         self.out_comm_final['pv2store']=nested_dict['pv2store'] # DC PV 2 batt from hh with PV
-        self.out_comm_final['inv2load']=(nested_dict['inv2load']+out_comm_res['inv2load']) # AC from all hh
+        self.out_comm_final['inv2load']=(nested_dict['inv2load']+self.out_comm_res['inv2load']) # AC from all hh
         self.out_comm_final['store2inv']=nested_dict['store2inv'] # DC  from hh with PV and batt
         self.out_comm_final['LevelOfCharge']=nested_dict['LevelOfCharge'] # kWh  from hh with PV and batt
-        self.out_comm_final['res_pv']=out_comm_res['res_pv'] # DC  from hh with PV
-        self.out_comm_final['inv2grid']=out_comm_res['inv2grid'] # AC from hh with PV
-        self.out_comm_final['grid2load']=out_comm_res['grid2load'] # AC  from all hh
+        self.out_comm_final['res_pv']=self.out_comm_res['res_pv'] # DC  from hh with PV
+        self.out_comm_final['inv2grid']=self.out_comm_res['inv2grid'] # AC from hh with PV
+        self.out_comm_final['grid2load']=self.out_comm_res['grid2load'] # AC  from all hh
         self.out_comm_final['inv2curt']=nested_dict['inv2curt'] # DC  from hh with PV
         self.out_comm_final['batt_losses']=nested_dict['batt_losses']
         self.out_comm_final['inv_losses']=nested_dict['inv_losses']
@@ -282,66 +258,17 @@ class Community():
         self.out_comm_final['selection']=self.selection
         self.out_comm_final['flagsell']=nested_dict['flagsell']
         
-    def updateOut(self):
-        self.out['bill']=self.sum_bill
-        self.out['cut']=self.cut
-        self.out['Comm']=self.Comm
-        if self.test_sc:
-            self.out['Comm']=self.out['Comm']+'_P2P'
-        
-        if (self.parallel) & (self.Comm=='P2P'): #only relevant output
-            del(self.df_out)
-            del(self.df_com)
-            del(self.sum_bill)
-            del(self.result_out)
-            del(self.prices_binned)
-            del(self.df_bhv_paired)
-            del(self.df_prices)
-            del(self.out_comm_final)
-            del(self.param_tech)
-            del(self.param_tech_no_batt)
-            del(self.param_tech_comm)
-            del(self.meta)
-            del(self.pv_dist)
-            del(self.selection)
-            del(self.retail_price_sc)
-            del(self.export_price_sc)
-            del(self.PV_size_comm)
-            del(self.community_size)
-            del(self.timestep)
-            del(self.seed)
-            del(self.country_code)
-            del(self.pv_penetration)
-            del(self.batt_penetration)
-            del(self.retail_price)
-            del(self.export_price)
-            del(self.predet_bhv)
-            del(self.ILR)
-            del(self.test_sc)
-            del(self.cut)
-            del(self.PtC)
-            del(self.Comm)
-            del(self.parallel)
-            del(self.nested_out)
-     
+
     def returnHousehold(self):
 
-        self.out_hh=pd.DataFrame()
-        self.out_hh=self.out_hh.append([pd.DataFrame(self.result_out[i],
+        out_hh=pd.DataFrame()
+        out_hh=out_hh.append([pd.DataFrame(self.result_out[i],
                            index=[i]) for i in range(len(self.result_out))])
-        self.out_hh["SCR_comm"]=self.out["SCR"]
-        self.out_hh["SSR_comm"]=self.out["SSR"]
-        self.out_hh["Bill_comm"]=self.sum_bill
-        self.out_hh['cut']=self.cut
-        self.out_hh['Comm']=self.Comm
-        self.out_hh['predet_bhv']=self.predet_bhv
-        self.out_hh['Benefit_index']=self.PWI
-        
-        
+
     
     def plotCommunity(self,week=20,flag=0,prices=None,save=True):
         if prices is None:
-            p2p.plot_SCCommunitydispatch_comm(self.df_out.PV*self.PV_size_comm, 
+            p2p.plot_dispatch_comm(self.df_out.PV*self.PV_size_comm, 
                            self.df_out.loc[:,self.df_com.iloc[:,0]].sum(axis=1),
                            self.out_comm_final, week=week,flag=flag,save=save)
         else:
@@ -378,13 +305,13 @@ class SCCommunity(Community):
             print(i, end='')
             if self.PtC!=False:
                 if self.selection.loc[i,'PV_size']>0:#all with PV
-                    inv_size=max(self.param_tech['MaxPower'],
+                    self.inv_size=max(self.param_tech['MaxPower'],
                                       self.selection.PV_size[i])#selection.PV_size[i]/ILR
                     self.PV_size_comm+=self.selection.PV_size[i]
                     if self.selection.loc[i,'battery']==True: #if battery
                         self.nested_out[i]=p2p.dispatch_max_sc(self.df_out.PV*self.selection.PV_size[i],
                                                           self.df_out.loc[:,str(self.selection.name[i])],
-                                                          inv_size,self.param_tech)
+                                                          self.inv_size,self.param_tech)
                         j+=1
                         self.result_out[i]=p2p.print_analysis_prices(self.df_out.PV*self.selection.PV_size[i],
                                              self.df_out.loc[:,str(self.selection.name[i])],
@@ -394,7 +321,7 @@ class SCCommunity(Community):
                     else: #if only PV battery=0 kWh
                         self.nested_out[i]=p2p.dispatch_max_sc(self.df_out.PV*self.selection.PV_size[i],
                                            self.df_out.loc[:,str(self.selection.name[i])],
-                                           inv_size,self.param_tech_no_batt)
+                                           self.inv_size,self.param_tech_no_batt)
                         k+=1
                         self.result_out[i]=p2p.print_analysis_prices(self.df_out.PV*self.selection.PV_size[i],
                                             self.df_out.loc[:,str(self.selection.name[i])],
@@ -415,14 +342,14 @@ class SCCommunity(Community):
                 self.sum_bill+=self.result_out[i]['bill']
             else:
                 if self.selection.loc[i,'sub_'+str(self.pv_penetration)+'_100']:#all with PV
-                    inv_size=max(self.param_tech['MaxPower'],
+                    self.inv_size=max(self.param_tech['MaxPower'],
                                       self.selection.PV_size[i])#selection.PV_size[i]/ILR
                     self.PV_size_comm+=self.selection.PV_size[i]
                     if self.selection.loc[i,'sub_'+str(self.pv_penetration)+'_'+
                                           str(self.batt_penetration)]: #if battery
                         self.nested_out[i]=p2p.dispatch_max_sc(self.df_out.PV*self.selection.PV_size[i],
                                                           self.df_out.loc[:,str(self.selection.name[i])],
-                                                          inv_size,self.param_tech)
+                                                          self.inv_size,self.param_tech)
                         j+=1
                         self.result_out[i]=p2p.print_analysis_prices(self.df_out.PV*self.selection.PV_size[i],
                                              self.df_out.loc[:,str(self.selection.name[i])],
@@ -432,7 +359,7 @@ class SCCommunity(Community):
                     else: #if only PV battery=0 kWh
                         self.nested_out[i]=p2p.dispatch_max_sc(self.df_out.PV*self.selection.PV_size[i],
                                            self.df_out.loc[:,str(self.selection.name[i])],
-                                           inv_size,self.param_tech_no_batt)
+                                           self.inv_size,self.param_tech_no_batt)
                         k+=1
                         self.result_out[i]=p2p.print_analysis_prices(self.df_out.PV*self.selection.PV_size[i],
                                             self.df_out.loc[:,str(self.selection.name[i])],
@@ -461,9 +388,7 @@ class SCCommunity(Community):
                  self.df_out.loc[:,self.df_com.iloc[:,0]].sum(axis=1),self.retail_price_sc,
                  self.export_price_sc, self.param_tech_comm,self.out_comm_final,
                  isCommunity=True)
-        self.returnHousehold()
-        
-        self.updateOut()
+        self.out['bill']=self.sum_bill
     def runPartial(self):
         
         self.getSelfConsumptionCommunity()
@@ -472,13 +397,10 @@ class SCCommunity(Community):
                  self.df_out.loc[:,self.df_com.iloc[:,0]].sum(axis=1),self.retail_price_sc,
                  self.export_price_sc, self.param_tech_comm,self.out_comm_final,
                  isCommunity=True)
-        self.returnHousehold()
-        self.updateOut()
-        
+        self.out['bill']=self.sum_bill
 
 class P2PCommunity(Community):
     def getPrices(self,SCCommunity):
-        self.Comm='P2P'
         self.createParams()
         self.selectData()
         df_bhv=pd.read_csv('../Input/table_bhv.csv',index_col=[0])
@@ -492,21 +414,11 @@ class P2PCommunity(Community):
             upper=df_sel.groupby('hh').sum().sell.median()+df_sel.groupby('hh').sum().sell.std()
             sell_group=df_sel.groupby('hh').sum().sell
             high_sell_group=sell_group[sell_group>upper]
-            tmp_pair=pd.DataFrame(map(lambda X: dict({'id':X[0],'hh':X[1]}), list(zip(list(self.selection.name.unique()),cycle(list(df_bhv[df_bhv.hh.isin(high_sell_group.index)].hh.unique()))))))
+            tmp_pair=pd.DataFrame(map(lambda X: dict({'id':X[0],'hh':X[1]}), list(zip(list(selection.name.unique()),cycle(list(df_bhv[df_bhv.hh.isin(high_sell_group.index)].hh.unique()))))))
         elif self.predet_bhv=='low':
-            df_sel=df_bhv[df_bhv.will]
             lower=df_sel.groupby('hh').sum().sell.median()-df_sel.groupby('hh').sum().sell.std()
             sell_group=df_sel.groupby('hh').sum().sell
             low_sell_group=sell_group[sell_group<lower]
-            tmp_pair=pd.DataFrame(map(lambda X: dict({'id':X[0],'hh':X[1]}), 
-                  list(zip(list(self.selection.name.unique()),
-                   cycle(list(df_bhv[df_bhv.hh.isin(low_sell_group.index)].hh.unique()))))))
-        elif self.predet_bhv=='medium':
-            df_sel=df_bhv[df_bhv.will]
-            lower=df_sel.groupby('hh').sum().sell.median()-df_sel.groupby('hh').sum().sell.std()
-            upper=df_sel.groupby('hh').sum().sell.median()+df_sel.groupby('hh').sum().sell.std()
-            sell_group=df_sel.groupby('hh').sum().sell
-            low_sell_group=sell_group[(sell_group>lower)&(sell_group<upper)]
             tmp_pair=pd.DataFrame(map(lambda X: dict({'id':X[0],'hh':X[1]}), 
                   list(zip(list(self.selection.name.unique()),
                    cycle(list(df_bhv[df_bhv.hh.isin(low_sell_group.index)].hh.unique()))))))
@@ -533,7 +445,7 @@ class P2PCommunity(Community):
         self.prices_binned=np.digitize(self.df_prices,bins=[0.04,0.12,0.20,0.28])
         self.prices_binned[self.prices_binned==0]=1
         if self.test_sc:
-            self.df_bhv_paired.loc[:,'sell']=False#this creates a P2P market where nobody want to sell
+            self.df_bhv_paired.loc[:,'sell']=False
     def getP2PCommunity(self):
 
         self.nested_out={}
@@ -545,20 +457,20 @@ class P2PCommunity(Community):
         for i in self.selection.index:
             print(i, end='')
             if self.PtC!=False:
-                if self.f.loc[i,'PV_size']>0:#all with PV
-                    inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
+                if self.selection.loc[i,'PV_size']>0:#all with PV
+                    self.inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
                     self.PV_size_comm+=self.selection.PV_size[i]
 
                     if self.selection.loc[i,'battery']: #if battery
                         self.nested_out[i]=p2p.dispatch_max_sc_bhv(self.df_out.PV*self.selection.PV_size[i],
                                                self.df_out.loc[:,str(self.selection.name[i])],
                                               self.df_bhv_paired[self.df_bhv_paired.id==self.selection.name[i]],
-                                               self.prices_binned,inv_size,self.param_tech)
+                                               self.prices_binned,self.inv_size,self.param_tech)
                         j+=1
                     else: #if only PV battery=0 kWh, thus no bhv needed
                         self.nested_out[i]=p2p.dispatch_max_sc(self.df_out.PV*self.selection.PV_size[i],
                                                    self.df_out.loc[:,str(self.selection.name[i])],
-                                                   inv_size,self.param_tech_no_batt)
+                                                   self.inv_size,self.param_tech_no_batt)
 
                         k+=1
                 else: #No PV, thus no bhv needed
@@ -567,19 +479,19 @@ class P2PCommunity(Community):
                                                0,self.param_tech_no_batt)
             else:
                 if self.selection.loc[i,'sub_'+str(self.pv_penetration)+'_100']:#all with PV
-                    inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
+                    self.inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
                     self.PV_size_comm+=self.selection.PV_size[i]
 
                     if self.selection.loc[i,'sub_'+str(self.pv_penetration)+'_'+str(self.batt_penetration)]: #if battery
                         self.nested_out[i]=p2p.dispatch_max_sc_bhv(self.df_out.PV*self.selection.PV_size[i],
                                                self.df_out.loc[:,str(self.selection.name[i])],
                                               self.df_bhv_paired[self.df_bhv_paired.id==self.selection.name[i]],
-                                               self.prices_binned,inv_size,self.param_tech)
+                                               self.prices_binned,self.inv_size,self.param_tech)
                         j+=1
                     else: #if only PV battery=0 kWh, thus no bhv needed
                         self.nested_out[i]=p2p.dispatch_max_sc(self.df_out.PV*self.selection.PV_size[i],
                                                    self.df_out.loc[:,str(self.selection.name[i])],
-                                                   inv_size,self.param_tech_no_batt)
+                                                   self.inv_size,self.param_tech_no_batt)
 
                         k+=1
                 else: #No PV, thus no bhv needed
@@ -597,7 +509,7 @@ class P2PCommunity(Community):
             print(i, end='')
             if self.PtC!=False:
                 if self.selection.loc[i,'PV_size']>0:#all with PV
-                    inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
+                    self.inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
 
                     if self.selection.loc[i,'battery']: #if battery
                         self.result_out[i]=p2p.print_analysis_prices(self.df_out.PV*self.selection.PV_size[i],
@@ -635,7 +547,7 @@ class P2PCommunity(Community):
                     self.result_out[i]['type']='No'
             else:
                 if self.selection.loc[i,'sub_'+str(self.pv_penetration)+'_100']:#all with PV
-                    inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
+                    self.inv_size=max(self.param_tech['MaxPower'],self.selection.PV_size[i])#selection.PV_size[i]/ILR
 
                     if self.selection.loc[i,'sub_'+str(self.pv_penetration)+'_'+str(self.batt_penetration)]: #if battery
                         self.result_out[i]=p2p.print_analysis_prices(self.df_out.PV*self.selection.PV_size[i],
@@ -674,7 +586,18 @@ class P2PCommunity(Community):
 
             self.sum_bill+=self.result_out[i]['bill']
 
+    def endP2P(self):
+        self.out=p2p.print_analysis_prices(self.df_out.PV*self.PV_size_comm, 
+                 self.df_out.loc[:,self.df_com.iloc[:,0]].sum(axis=1),self.retail_price_sc,
+                 self.export_price_sc, self.param_tech_comm,self.out_comm_final,
+                 isCommunity=True)
+        self.out['bill']=self.sum_bill
     
+    def runAll(self,SCCommunity):
+        self.getPrices(SCCommunity)
+        self.getP2PCommunity()
+        self.endP2P()
+        self.getKPI(SCCommunity)
     def getKPI(self,SCCommunity):
         print(self.out['SSR']>SCCommunity.out['SSR'])
         print(self.out['SSR']-SCCommunity.out['SSR'])
@@ -701,11 +624,9 @@ class P2PCommunity(Community):
         p2p_day=(self.out_comm_final['grid2load']-self.out_comm_final['inv2grid']).groupby([self.out_comm_final['grid2load'].index.hour]).mean()
         sc_day=(SCCommunity.out_comm_final['grid2load']-SCCommunity.out_comm_final['inv2grid']).groupby([SCCommunity.out_comm_final['grid2load'].index.hour]).mean()
 
-        if self.parallel==False:
-            week_power=pd.concat([p2p_week.rename('p2p'),sc_week.rename('sc')],axis=1).to_csv('../Output/week_power.csv')
-        else:
-            week_power=pd.concat([p2p_week.rename('p2p'),sc_week.rename('sc')],axis=1)
-        
+
+        week_power=pd.concat([p2p_week.rename('p2p'),sc_week.rename('sc')],axis=1)
+
         day_power=pd.concat([p2p_day.rename('p2p'),sc_day.rename('sc')],axis=1)
 
         #The P2P peak-to-peak measure is lower than in the SC one
@@ -725,7 +646,7 @@ class P2PCommunity(Community):
         print(self.out['EPARI'])
         print(SCCommunity.out['EPARI'])
         
-        self.PWI=(((pd.DataFrame([SCCommunity.result_out[i]['bill'] for i in range(SCCommunity.community_size)])-
+        PWI=(((pd.DataFrame([SCCommunity.result_out[i]['bill'] for i in range(SCCommunity.community_size)])-
             pd.DataFrame([self.result_out[i]['bill'] for i in range(self.community_size)]))>0).sum()/
         self.community_size).values[0]
         
@@ -742,25 +663,6 @@ class P2PCommunity(Community):
 
         Gini_rsv(np.array(aux.P2P.astype(float)),aux.weight)
         
-        print(sum([SCCommunity.result_out[i]['bill'] for i in range(SCCommunity.community_size)])**2/(SCCommunity.community_size*sum([SCCommunity.result_out[i]['bill']**2 for i in range(SCCommunity.community_size)])).round(2))# benefit index
-        print(sum([self.result_out[i]['bill'] for i in range(self.community_size)])**2/(self.community_size*sum([self.result_out[i]['bill']**2 for i in range(self.community_size)])).round(2))# benefit index
+        sum([SCCommunity.result_out[i]['bill'] for i in range(SCCommunity.community_size)])**2/(SCCommunity.community_size*sum([SCCommunity.result_out[i]['bill']**2 for i in range(SCCommunity.community_size)])).round(2)
+        sum([self.result_out[i]['bill'] for i in range(self.community_size)])**2/(self.community_size*sum([self.result_out[i]['bill']**2 for i in range(self.community_size)])).round(2)
         
-    def endP2P(self):
-        self.out=p2p.print_analysis_prices(self.df_out.PV*self.PV_size_comm, 
-                 self.df_out.loc[:,self.df_com.iloc[:,0]].sum(axis=1),self.retail_price_sc,
-                 self.export_price_sc, self.param_tech_comm,self.out_comm_final,
-                 isCommunity=True)
-        self.returnHousehold()
-        self.updateOut()
-
-    def runAll(self,SCCommunity):
-        self.getPrices(SCCommunity)
-        self.getP2PCommunity()
-        self.returnHousehold()
-        self.endP2P()
-        self.getKPI(SCCommunity)
-        self.updateOut()
-        
-        if self.parallel:
-            del(self.out)        
-    
